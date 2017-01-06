@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
      // This pin is not the first pin on the RPi GPIO header!
      // Consult https://projects.drogon.net/raspberry-pi/wiringpi/pins/
      // for more information.
-     int PIN = 29;
+     int PIN = 2;
      
      if(wiringPiSetup() == -1) {
        printf("wiringPiSetup failed, exiting...");

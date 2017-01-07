@@ -50,9 +50,12 @@ int main(int argc, char *argv[]) {
           printf("Received %i\n", mySwitch.getReceivedValue() );
 
           if ((argc > 1 && strcmp(argv[1],"-v") == 0) || (argc > 2 && strcmp(argv[2],"-v") == 0)) {
-		  unsigned int *databuffer = mySwitch.getReceivedRawdata(); 
-		  int nreceived = mySwitch.getReceivedValue();
 		  int nbitlength = mySwitch.getReceivedBitlength();
+		  int databuffer[64]; // get a copy of the received timings before they are overwritten
+          for (int transmitlevels = 0; transmitlevels < 2*nbitlength+2; transmitlevels++) {
+            if(transmitlevels < 64) databuffer[transmitlevels] = mySwitch.getReceivedRawdata()[transmitlevels];
+          }
+		  int nreceived = mySwitch.getReceivedValue();
 		  int nprotocol = mySwitch.getReceivedProtocol();
 		  int npulselength = mySwitch.getReceivedDelay();
 		

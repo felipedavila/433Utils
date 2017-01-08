@@ -1,3 +1,4 @@
 [submodule "rc-switch"]
 	path = rc-switch
 	url = https://github.com/Martin-Laclaustra/rc-switch.git
+	branch = protocollessreceiver

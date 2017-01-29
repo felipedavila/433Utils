@@ -147,13 +147,17 @@ int main(int argc, char *argv[]) {
 		  if(nreceived != 0) {
 			  int numberofsetbits = __builtin_popcount(nreceived);
 			  printf("number of bits set (in %i): %i\n",nreceived,numberofsetbits);
-			  longup /= numberofsetbits; // warning, ensure avoiding 0 division
-			  shortdown /= numberofsetbits; // warning, ensure avoiding 0 division
-			  shortup /= nbitlength-numberofsetbits; // warning, ensure avoiding 0 division
-			  longdown /= nbitlength-numberofsetbits; // warning, ensure avoiding 0 division
-			  printf("longup, longdown, shortup, shortdown\n");
-			  printf("%i, %i, %i, %i\n",longup, longdown, shortup, shortdown);
-			  printf("this might be useful for tweaking emmitting algorithms\n");
+			  if(numberofsetbits == 0 || numberofsetbits == nbitlength) { // ensure avoiding 0 division
+			     printf("all bits of the same value, skipping fractional analysis.");
+			  } else {
+			     longup /= numberofsetbits; 
+			     shortdown /= numberofsetbits;
+			     shortup /= nbitlength-numberofsetbits;
+			     longdown /= nbitlength-numberofsetbits;
+			     printf("longup, longdown, shortup, shortdown\n");
+			     printf("%i, %i, %i, %i\n",longup, longdown, shortup, shortdown);
+			     printf("this might be useful for tweaking emmitting algorithms\n");
+			  }
 			  }
 		  printf("\n=============================================\n");
 		  printf("=============================================\n");

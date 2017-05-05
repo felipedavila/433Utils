@@ -1,11 +1,14 @@
 /*
-  RFSniffer
+RFSniffer
 
-  Usage: ./RFSniffer [<pulseLength>]
-  [] = optional
+Usage: ./RFSniffer [<pulseLength>] [-v]
+	[] = optional
 
-  Hacked from http://code.google.com/p/rc-switch/
-  by @justy to provide a handy RF code sniffer
+Requires modified rc-switch branch "protocollessreceiver"
+with ReceivedInverted() function exposed.
+Hacked from http://code.google.com/p/rc-switch/
+by @justy to provide a handy RF code sniffer
+by @Martin-Laclaustra to provide a protocol generator
 */
 
 #include "../rc-switch/RCSwitch.h"
@@ -13,170 +16,199 @@
 #include <stdio.h>
 // required to compute squareroot to get a standard deviation of timings
 #include <math.h>     
-     
+
 RCSwitch mySwitch;
 
 
 int main(int argc, char *argv[]) {
-  
-     // This pin is not the first pin on the RPi GPIO header!
-     // Consult https://projects.drogon.net/raspberry-pi/wiringpi/pins/
-     // for more information.
-     int PIN = 2;
-     
-     if(wiringPiSetup() == -1) {
-       printf("wiringPiSetup failed, exiting...");
-       return 0;
-     }
 
-     int pulseLength = 0;
-     if (argv[1] != NULL) pulseLength = atoi(argv[1]);
+	// This pin is not the first pin on the RPi GPIO header!
+	// Consult https://projects.drogon.net/raspberry-pi/wiringpi/pins/
+	// for more information.
+	int PIN = 2;
 
-     mySwitch = RCSwitch();
-     if (pulseLength != 0) mySwitch.setPulseLength(pulseLength);
-     mySwitch.enableReceive(PIN);  // Receiver on interrupt 0 => that is pin #2
-     
-    
-     while(1) {
-  
-      if (mySwitch.available()) {
-    
-        int value = mySwitch.getReceivedValue();
-    
-        if (value == 0) {
-          printf("Unknown encoding\n");
-        } else {    
-   
-          printf("Received %i\n", mySwitch.getReceivedValue() );
+	if(wiringPiSetup() == -1) {
+		printf("wiringPiSetup failed, exiting...");
+		return 0;
+	}
 
-          if ((argc > 1 && strcmp(argv[1],"-v") == 0) || (argc > 2 && strcmp(argv[2],"-v") == 0)) {
-		  int nbitlength = mySwitch.getReceivedBitlength();
-		  int databuffer[64]; // get a copy of the received timings before they are overwritten
-          for (int transmitlevels = 0; transmitlevels < 2*nbitlength+2; transmitlevels++) {
-            if(transmitlevels < 64) databuffer[transmitlevels] = mySwitch.getReceivedRawdata()[transmitlevels];
-          }
-		  int nreceived = mySwitch.getReceivedValue();
-		  int nprotocol = mySwitch.getReceivedProtocol();
-		  int npulselength = mySwitch.getReceivedDelay();
-		
-		  printf("\n=============================================\n");
-		  printf("=============================================\n");
-		  printf("\n");
-		  printf("GENERAL\n");
-		  printf("=======\n");
-		  printf("Received %i\n", nreceived );
-		  printf("Bitlength %i\n", nbitlength );
-		  printf("Protocol %i\n", nprotocol );
-                  // (or long/short ratio in protocoless detection) 
-		  printf("Delay(short pulse length in us) %i\n", npulselength );
-		  printf("(delay from rc-switch is calculated from the sync gap and requires previous knowledge of the protocol)\n");
-		  if(2*nbitlength+2 < 64) { //prevent bufferoverrun
-		  printf("(The following assumes protocols that detect the low period of sync)\n");
-		  printf("(The next information is probably wrong for inverted protocols)\n");
-		  printf("Sync bit high-low durations (in us) %i %i\n", databuffer[2*nbitlength+1], databuffer[0] );
-		  printf("\n");
-		  printf("RAW SIGNAL (us)\n");
-		  printf("===============\n");
-		  for (int transmitlevels = 0; transmitlevels < 2*nbitlength+2; transmitlevels++) {
-		    printf("%i ", databuffer[transmitlevels] );
-		    if(transmitlevels % 16 == 0) printf("\n");
-		  }
-		  printf("\n");
-		  printf("\n");
-		  printf("STATISTICS\n");
-		  printf("==========\n");
-		
-		  // compute duration of data bits
-		  // compute databit duration variability
-		  unsigned int dataduration = 0;
-		  for (unsigned int i = 1; i < 2*nbitlength; i += 2) {
-		    dataduration += databuffer[i]+databuffer[i + 1];
-		  }
-		
-		  // compute average databit duration
-		  unsigned int averagebitduration = 0;
-		  if(nbitlength != 0) {
-			  averagebitduration = (int) (0.5 + (double)dataduration/(double)nbitlength); // warning, ensure avoiding 0 division (should not happen because rc-switch rejects < 4 bits)
-		  }
-		  int variancebitduration = 0;
-		  for (unsigned int i = 1; i < 2*nbitlength; i += 2) {
-		    variancebitduration += (databuffer[i]+databuffer[i + 1]-averagebitduration)*(databuffer[i]+databuffer[i + 1]-averagebitduration);
-		  }
-		  if((nbitlength-1) != 0) {
-			  variancebitduration /= (nbitlength-1); // warning, ensure avoiding 0 division (should not happen because rc-switch rejects < 4 bits)
-		  } else {
-			  variancebitduration = 0;
-		  }
-		  double sdbitduration = sqrt(variancebitduration);
-		
-		  printf("Data bit duration = %i and standard deviation (should be less than 10%) = %.2f\n", averagebitduration, sdbitduration );
-		  printf("Do not use the rest of the information if big standard deviation\n");
-		  int longtoshortratio = (int)(0.5 + (double)(averagebitduration-npulselength)/(double)npulselength);
-		  printf("Long-to-short duration ratio for data bits (rounded) %i\n", longtoshortratio );
-		  int normalizedpulselength = (int)(0.5 + (double)averagebitduration/(double)(longtoshortratio+1));
-		  printf("Short duration (delay) recalculated from rounded ratio and average bit duration %i\n", normalizedpulselength );
-		  // sync bit
-		  printf("Sync bit (in multiples of the previous short duration) %i %i\n", (int) (0.5 + (double)databuffer[2*nbitlength+1]/(double)normalizedpulselength) ,(int) (0.5 + (double)databuffer[0]/(double)normalizedpulselength) );
-		  printf("\n");
-		  printf("Proposed protocol for RCswitch\n");
-		  printf("{ %i, { %i, %i }, { 1, %i }, { %i, 1 }, false }\n",normalizedpulselength,(int) (0.5 + (double)databuffer[2*nbitlength+1]/(double)normalizedpulselength),(int) (0.5 + (double)databuffer[0]/(double)normalizedpulselength),longtoshortratio,longtoshortratio);
-		  printf("Note: inverted protocol is not implemented\n");
-		
-		  printf("\n");
-		  printf("STATISTICS OF VARIATION BY LEVELS\n");
-		  printf("=================================\n");
-		  printf("(These are probably artifacts from detection delays or signal creation)\n");
-		  printf("(might be completely ignored, but pay attention to them if big differences are present and emission does not work)\n");
+	int pulseLength = 0;
+	if (argv[1] != NULL) pulseLength = atoi(argv[1]);
 
-		  int longup = 0;
-		  int shortup = 0;
-		  int longdown = 0;
-		  int shortdown = 0;
-		
-		  // high level long and short timings
-		  for (unsigned int i = 1; i < 2*nbitlength; i += 2) {
-		    if(databuffer[i]>databuffer[i + 1]){
-		    longup += databuffer[i];
-		    shortdown += databuffer[i + 1];
-		    } else {
-		    shortup += databuffer[i];
-		    longdown += databuffer[i + 1];
-		    }
-		  }
-		  // low level long and short timings
-		  if(nreceived != 0) {
-			  int numberofsetbits = __builtin_popcount(nreceived);
-			  printf("number of bits set (in %i): %i\n",nreceived,numberofsetbits);
-			  if(numberofsetbits == 0 || numberofsetbits == nbitlength) { // ensure avoiding 0 division
-			     printf("all bits of the same value, skipping fractional analysis.");
-			  } else {
-			     longup /= numberofsetbits; 
-			     shortdown /= numberofsetbits;
-			     shortup /= nbitlength-numberofsetbits;
-			     longdown /= nbitlength-numberofsetbits;
-			     printf("longup, longdown, shortup, shortdown\n");
-			     printf("%i, %i, %i, %i\n",longup, longdown, shortup, shortdown);
-			     printf("this might be useful for tweaking emmitting algorithms\n");
-			  }
-			  }
-		  printf("\n=============================================\n");
-		  printf("=============================================\n");
-		  printf("\n");
-		  printf("\n");
-		  printf("\n");
-		  }
-          }
-        }
-    
-        mySwitch.resetAvailable();
-    
-      }
-      
-  
-  }
+	mySwitch = RCSwitch();
+	if (pulseLength != 0) mySwitch.setPulseLength(pulseLength);
+	mySwitch.enableReceive(PIN);  // Receiver on interrupt 0 => that is pin #2
 
-  exit(0);
 
+	while(1) {
+		if (mySwitch.available()) {
+
+			int value = mySwitch.getReceivedValue();
+
+			if (value == 0) {
+				printf("Unknown encoding\n");
+			} else {    
+
+				printf("Received %i\n", mySwitch.getReceivedValue() );
+
+				if ((argc > 1 && strcmp(argv[1],"-v") == 0) || (argc > 2 && strcmp(argv[2],"-v") == 0)) {
+					int nbitlength = mySwitch.getReceivedBitlength();
+					int numberoftimings = 2 * nbitlength + 2;
+					int databuffer[64]; // get a copy of the received timings before they are overwritten
+					if(numberoftimings > 64) numberoftimings = 64;
+					for (int i = 0; i < numberoftimings; i++) {
+						databuffer[i] = mySwitch.getReceivedRawdata()[i];
+					}
+
+					int nreceived = mySwitch.getReceivedValue();
+					int nprotocol = mySwitch.getReceivedProtocol();
+					int npulselength = mySwitch.getReceivedDelay();
+
+					printf("\n=============================================\n");
+					printf("=============================================\n");
+					printf("\n");
+					printf("GENERAL\n");
+					printf("=======\n");
+					printf("Received %i\n", nreceived );
+					printf("Bitlength %i\n", nbitlength );
+					printf("Protocol %i\n", nprotocol );
+					printf("Delay(pulse length in us) %i\n", npulselength );
+					printf("(delay provided from rc-switch)\n");
+
+					printf("\n");
+					printf("STATISTICS\n");
+					printf("==========\n");
+
+					unsigned int databitsoffset = abs( (int)mySwitch.getReceivedLevelInFirstTiming() - (int)mySwitch.getReceivedInverted());
+
+					// compute duration of data bits
+					unsigned long dataduration = 0;
+					for (unsigned int i = 1 + databitsoffset; i < numberoftimings - 1 + databitsoffset; i++) {
+						dataduration += databuffer[i];
+					}
+					printf("Duration of data bits in pulse train :  %i\n", dataduration );
+
+					// compute average databit duration
+					unsigned int averagebitduration = 0;
+					if(nbitlength != 0) {
+						averagebitduration = (int) (0.5 + (double)dataduration/(double)nbitlength); // warning, ensure avoiding 0 division (should not happen because rc-switch rejects < 4 bits)
+					}
+					// compute databit duration variability
+					int variancebitduration = 0;
+					for (unsigned int i = 1 + databitsoffset; i < numberoftimings - 1 + databitsoffset; i += 2) {
+						variancebitduration += (databuffer[i]+databuffer[i + 1]-averagebitduration)*(databuffer[i]+databuffer[i + 1]-averagebitduration);
+					}
+					if((nbitlength-1) != 0) {
+						variancebitduration /= (nbitlength-1); // warning, ensure avoiding 0 division (should not happen because rc-switch rejects < 4 bits)
+					} else {
+						variancebitduration = 0;
+					}
+					double sdbitduration = sqrt(variancebitduration);
+
+					printf("Data bit duration = %i and standard deviation = %.2f\n", averagebitduration, sdbitduration );
+					
+					double coefficientofvariation = sdbitduration / averagebitduration;
+					printf("Coefficient of variation of data-bit duration = %.2f % (should be less than 10%)\n", 100*coefficientofvariation );
+					printf("Do not use the rest of the information if big coefficient of variation\n");
+					unsigned int protocolratio = (unsigned int)(0.5 + (double)(averagebitduration-npulselength)/(double)npulselength);
+					printf("Long-to-short duration ratio for data bits (rounded) = %i\n", protocolratio );
+
+					// sync bit
+					if(databitsoffset == 0) {
+						printf("Sync bit (in multiples of the pulseLength) = %i %i\n", (int) (0.5 + (double)databuffer[2*nbitlength+1]/(double)npulselength) ,(int) (0.5 + (double)databuffer[0]/(double)npulselength) );
+					} else {
+						printf("Sync bit (in multiples of the pulseLength) = %i %i\n", (int) (0.5 + (double)databuffer[0]/(double)npulselength) ,(int) (0.5 + (double)databuffer[1]/(double)npulselength) );
+					}
+					printf("\n");
+					printf("Proposed protocol for RCswitch\n");
+					printf("{ %i, { %i, %i }, { 1, %i }, { %i, 1 }, %s }\n",
+					npulselength,
+					(databitsoffset==0) ? 
+						(int) (0.5 + (double)databuffer[2*nbitlength+1]/(double)npulselength)
+						:
+						(int) (0.5 + (double)databuffer[0]/(double)npulselength),
+					(databitsoffset==0) ?
+						(int) (0.5 + (double)databuffer[0]/(double)npulselength)
+						:
+						(int) (0.5 + (double)databuffer[1]/(double)npulselength),
+					protocolratio,
+					protocolratio,
+					(mySwitch.getReceivedInverted()) ? "true" : "false");
+
+					printf("\n");
+					printf("STATISTICS OF VARIATION BY LEVELS\n");
+					printf("=================================\n");
+					printf("(Differences here are probably artifacts from signal creation or detection)\n");
+					printf("(This might be completely ignored, but pay attention to them if big differences are present and emission does not work)\n");
+
+					int longup = 0;
+					int shortup = 0;
+					int longdown = 0;
+					int shortdown = 0;
+					int longupdownshortupdown[4] = {0,0,0,0}; // values
+
+					// high level long and short timings
+					for (unsigned int i = 1 + databitsoffset; i < 2*nbitlength + databitsoffset; i += 2) {
+						int firstisshortlevel = (int)(databuffer[i]<databuffer[i + 1]);
+						//int firstisdown = (int)(mySwitch.getReceivedInverted());
+						longupdownshortupdown[2*firstisshortlevel+(int)(mySwitch.getReceivedInverted())] += databuffer[i];
+						longupdownshortupdown[2*(1-firstisshortlevel)+(1-(int)(mySwitch.getReceivedInverted()))] += databuffer[i + 1];
+					}
+					longup = longupdownshortupdown[0];
+					shortup = longupdownshortupdown[2];
+					longdown = longupdownshortupdown[1];
+					shortdown = longupdownshortupdown[3];
+					// low level long and short timings
+					if(nreceived != 0) {
+						int numberofsetbits = __builtin_popcount(nreceived);
+						printf("number of bits set (in %i): %i\n",nreceived,numberofsetbits);
+						if(numberofsetbits == 0 || numberofsetbits == nbitlength) { // ensure avoiding 0 division
+							printf("all bits of the same value, skipping fractional analysis.");
+						} else {
+							if(mySwitch.getReceivedInverted()) {
+							longup /= nbitlength-numberofsetbits; 
+							shortdown /= nbitlength-numberofsetbits;
+							shortup /= numberofsetbits;
+							longdown /= numberofsetbits;
+							} else {
+							longup /= numberofsetbits; 
+							shortdown /= numberofsetbits;
+							shortup /= nbitlength-numberofsetbits;
+							longdown /= nbitlength-numberofsetbits;
+							}
+							printf("longup, longdown, shortup, shortdown\n");
+							printf("%i, %i, %i, %i\n",longup, longdown, shortup, shortdown);
+							printf("this might be useful for tweaking emmitting algorithms\n");
+						}
+					}
+					printf("\n=============================================\n");
+					// raw signal
+					if(2*nbitlength+2 < 64) { //prevent bufferoverrun
+						printf("\n");
+						printf("RAW SIGNAL (us)\n");
+						printf("===============\n");
+						printf("first level %s \n", (mySwitch.getReceivedLevelInFirstTiming() == 0) ? "down" : "up" );
+						for (int i = 0; i < 2*nbitlength + 2 - 1 + databitsoffset; i++) {
+							printf("%i ", databuffer[i] );
+							if((i - databitsoffset) % 16 == 0) printf("\n");
+						}
+						if ((2*nbitlength+2 - 1 + databitsoffset - 1) % 16 != 0) printf("\n");
+						if (databitsoffset != 1) printf("%i ", databuffer[2*nbitlength+1]);
+						
+						printf("\n");
+						printf("=============================================\n");
+						printf("\n");
+						printf("\n");
+						printf("\n");
+					}
+				}
+			}
+
+			mySwitch.resetAvailable();
+
+		}
+
+
+	}
 
 }
-

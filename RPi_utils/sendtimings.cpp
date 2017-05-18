@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
 
     
     unsigned int currenttiming = 0;
-    while( transmitarray[currenttiming] && currenttiming < 32*2 + 2 +1 ) {
+    while( transmitarray[currenttiming] && currenttiming < count+2 ) {
       printf("%i, ", transmitarray[currenttiming] );
       currenttiming++;
     }

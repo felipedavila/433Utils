@@ -19,4 +19,5 @@
 RPi_utils/RFSniffer
 RPi_utils/codesend
 RPi_utils/send
-
+RPi_utils/generatetimings
+RPi_utils/sendtimings
